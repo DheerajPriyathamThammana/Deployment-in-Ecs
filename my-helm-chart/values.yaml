@@ -8,9 +8,9 @@ replicaCount: 2 # Increased to 2 for high availability across AWS Availability Z
 image:
   # LEAVE THESE PLACEDHOLDERS AS-IS. 
   # Your GitHub Actions pipeline will automatically overwrite these during runtime.
-  repository: 593845248500.dkr.ecr.us-east-1.amazonaws.com/placeholder 
+  repository: 593845248500.dkr.ecr.us-east-1.amazonaws.com/dheeraj-2025
   pullPolicy: IfNotPresent
-  tag: "latest" 
+  tag: "" 
 
 imagePullSecrets: []
 nameOverride: ""
