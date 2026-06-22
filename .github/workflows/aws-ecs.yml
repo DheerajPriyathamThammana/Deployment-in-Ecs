@@ -1,7 +1,13 @@
 name: GHA-2-ECS
+
 on:
   push:
     branches: [ main ]
+
+# Centralized variables
+env:
+  AWS_REGION: us-east-1
+  ECS_TASK_DEFINITION_FAMILY: ecs-deploy # Change this if your Task Definition family name is different
 
 permissions:
   id-token: write
@@ -18,7 +24,7 @@ jobs:
         uses: aws-actions/configure-aws-credentials@v4
         with:
           role-to-assume: arn:aws:iam::593845248500:role/Github-OIDC-ECS-Dheeraj
-          aws-region: us-east-1
+          aws-region: ${{ env.AWS_REGION }}
 
       # Step 1: Login to Amazon ECR
       - name: Login to Amazon ECR
@@ -37,16 +43,23 @@ jobs:
           echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
         id: build-image
 
-      # Step 3: Dynamic placeholder replacement for the Container Image in Task Def
+      # Step 3: Fetch active task definition from AWS (Since it's not in GitHub)
+      - name: Download active task definition from AWS ECS
+        run: |
+          aws ecs describe-task-definition \
+            --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} \
+            --query taskDefinition > current-task-definition.json
+
+      # Step 4: Dynamic placeholder replacement for the Container Image in Task Def
       - name: Fill in the new image ID in the Amazon ECS task definition
         id: render-task-def
         uses: aws-actions/amazon-ecs-render-task-definition@v1
         with:
-          task-definition: .aws/task-definition.json
+          task-definition: current-task-definition.json # Pointing to the downloaded file
           container-name: ${{ secrets.ECS_CONTAINER_NAME }} # Must match the "name" in your containerDefinitions
           image: ${{ steps.build-image.outputs.image }}
 
-      # Step 4: Deploy to Amazon ECS using Placeholders
+      # Step 5: Deploy to Amazon ECS using Placeholders
       - name: Deploy Amazon ECS task definition
         uses: aws-actions/amazon-ecs-deploy-task-definition@v2
         with:
