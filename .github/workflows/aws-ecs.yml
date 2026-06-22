@@ -22,7 +22,7 @@ jobs:
       - name: Authenticate via AWS OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::593845248500:role/Github-OIDC-EKS-Dheeraj
+          role-to-assume: arn:aws:iam::593845248500:role/Github-OIDC-ECS-Dheeraj
           aws-region: ${{ env.AWS_REGION }}
 
       # Step 1: Login to Amazon ECR
