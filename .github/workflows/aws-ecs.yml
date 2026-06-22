@@ -1,20 +1,19 @@
-name: GHA-2-ECS
+name: GHA-2-EKS-Helm
 
 on:
   push:
     branches: [ main ]
 
-# Centralized variables
 env:
   AWS_REGION: us-east-1
-  ECS_TASK_DEFINITION_FAMILY: ecs-deploy # Change this if your Task Definition family name is different
+  HELM_CHART_PATH: ./my-helm-chart # <-- CHANGE THIS to the path of your Helm chart folder
 
 permissions:
   id-token: write
   contents: read
 
 jobs:
-  deploy-ecs:
+  deploy-eks:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout Code
@@ -23,7 +22,7 @@ jobs:
       - name: Authenticate via AWS OIDC
         uses: aws-actions/configure-aws-credentials@v4
         with:
-          role-to-assume: arn:aws:iam::593845248500:role/Github-OIDC-ECS-Dheeraj
+          role-to-assume: arn:aws:iam::593845248500:role/Github-OIDC-EKS-Dheeraj
           aws-region: ${{ env.AWS_REGION }}
 
       # Step 1: Login to Amazon ECR
@@ -33,37 +32,31 @@ jobs:
 
       # Step 2: Build, tag, and push image to Amazon ECR
       - name: Build & Push to ECR
+        id: build-image
         env:
           ECR_REGISTRY: ${{ steps.login-ecr.outputs.registry }}
-          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }} # e.g., python-app
+          ECR_REPOSITORY: ${{ secrets.AWS_ECR_REPOSITORY }}
           IMAGE_TAG: ${{ github.sha }}
         run: |
           docker build -t $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG .
           docker push $ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG
-          echo "image=$ECR_REGISTRY/$ECR_REPOSITORY:$IMAGE_TAG" >> $GITHUB_OUTPUT
-        id: build-image
+          # We export these separately to pass cleanly into Helm
+          echo "registry_repo=$ECR_REGISTRY/$ECR_REPOSITORY" >> $GITHUB_OUTPUT
+          echo "tag=$IMAGE_TAG" >> $GITHUB_OUTPUT
 
-      # Step 3: Fetch active task definition from AWS (Since it's not in GitHub)
-      - name: Download active task definition from AWS ECS
+      # Step 3: Configure Kubectl to connect to EKS
+      - name: Update KubeConfig
         run: |
-          aws ecs describe-task-definition \
-            --task-definition ${{ env.ECS_TASK_DEFINITION_FAMILY }} \
-            --query taskDefinition > current-task-definition.json
+          aws eks update-kubeconfig \
+            --region ${{ env.AWS_REGION }} \
+            --name ${{ secrets.EKS_CLUSTER_NAME }}
 
-      # Step 4: Dynamic placeholder replacement for the Container Image in Task Def
-      - name: Fill in the new image ID in the Amazon ECS task definition
-        id: render-task-def
-        uses: aws-actions/amazon-ecs-render-task-definition@v1
-        with:
-          task-definition: current-task-definition.json # Pointing to the downloaded file
-          container-name: ${{ secrets.ECS_CONTAINER_NAME }} # Must match the "name" in your containerDefinitions
-          image: ${{ steps.build-image.outputs.image }}
-
-      # Step 5: Deploy to Amazon ECS using Placeholders
-      - name: Deploy Amazon ECS task definition
-        uses: aws-actions/amazon-ecs-deploy-task-definition@v2
-        with:
-          task-definition: ${{ steps.render-task-def.outputs.task-definition }}
-          service: ${{ secrets.ECS_SERVICE_NAME }}
-          cluster: ${{ secrets.ECS_CLUSTER_NAME }}
-          wait-for-service-stability: true
+      # Step 4 & 5: Deploy with Helm and Wait for Stability
+      - name: Deploy to Amazon EKS via Helm
+        run: |
+          helm upgrade --install ${{ secrets.HELM_RELEASE_NAME }} ${{ env.HELM_CHART_PATH }} \
+            --namespace default \
+            --set image.repository=${{ steps.build-image.outputs.registry_repo }} \
+            --set image.tag=${{ steps.build-image.outputs.tag }} \
+            --atomic \
+            --timeout 5m0s
